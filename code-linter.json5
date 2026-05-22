@@ -1,0 +1,12 @@
+{
+  "code-linter": {
+    "rules": {
+      "arkts": [
+        "all"
+      ]
+    },
+    "arktsConfig": {
+      "strictMode": true
+    }
+  }
+}

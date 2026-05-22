@@ -1,0 +1,2 @@
+# Define project specific obfuscation rules for HarmonyOS project.
+# For details, see https://developer.huawei.com/consumer/cn/doc/harmonyos-guides-V5/ide-obfuscation-rules-V5
