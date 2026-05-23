@@ -1,14 +1,4 @@
-// ====================================================================
-// Page: Index (OuterTune L0 Home — search + quick actions + bottom nav)
-// Android baseline: D:/OH-Appforge/_doc_screenshots_v2/OuterTune/L0_home.png
-// Layout contract:
-//   - Top search bar pill: 🔍 "Search" placeholder + gear ⚙ (right)
-//   - Three quick-action circle tiles (centered row): History | Stats | Local scanner
-//   - Bottom nav 4 tabs: Home (active, filled bg) | Songs | Folders | Library
-// Navigation:
-//   - "History" quick-action tile (and any tile tap) → PlayerScreenPage
-//     (acts as the "Now Playing" entry point on the home shell)
-// ====================================================================
+// Page: Index
 
 import { router } from '@kit.ArkUI';
 import { hilog } from '@kit.PerformanceAnalysisKit';

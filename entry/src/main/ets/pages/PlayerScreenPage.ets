@@ -1,19 +1,4 @@
-// ====================================================================
 // Page: PlayerScreenPage
-// App: OuterTune
-// Android baseline:
-//   - D:/OH-Appforge/_doc_screenshots_v2/OuterTune/L2_player_screen.png
-//   - D:/OH-Appforge/_doc_screenshots_v2/OuterTune/L2_player_screen.xml
-// Layout contract:
-//   - Top bar: back arrow on far left, three-dot menu on far right
-//   - Large square album art placeholder (centered)
-//   - Track title + artist below
-//   - Two small toggles (favorite + queue) on the right above slider
-//   - Progress Slider with start/end time labels (0:24 / 6:12)
-//   - Control row: queue, lyrics, prev, play/pause (big), next, shuffle, repeat
-// ====================================================================
-// NOTE: All media.AVPlayer calls left as TODO comments per Batch-C contract.
-// ====================================================================
 
 import { router } from '@kit.ArkUI';
 import { hilog } from '@kit.PerformanceAnalysisKit';
