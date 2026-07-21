@@ -1,9 +1,32 @@
 {
   "tracks": [
-    { "title": "Fuji Mountain", "artist": "Hins Cheung", "durationSec": 268,
-      "lyrics": ["Over the summit", "Then watch the sea of clouds", "Wandering with you"] },
-    { "title": "Midnight City", "artist": "M83", "durationSec": 240, "lyrics": [] },
-    { "title": "Clair de Lune", "artist": "Debussy", "durationSec": 300,
-      "lyrics": ["Andante tres expressif", "Pianissimo throughout"] }
+    {
+      "id": "fuji-mountain",
+      "title": "Fuji Mountain",
+      "artist": "Hins Cheung",
+      "durationSec": 268,
+      "lyrics": [
+        { "timeSec": 0, "text": "Over the summit" },
+        { "timeSec": 45, "text": "Then watch the sea of clouds" },
+        { "timeSec": 92, "text": "Wandering with you" }
+      ]
+    },
+    {
+      "id": "midnight-city",
+      "title": "Midnight City",
+      "artist": "M83",
+      "durationSec": 240,
+      "lyrics": []
+    },
+    {
+      "id": "clair-de-lune",
+      "title": "Clair de Lune",
+      "artist": "Debussy",
+      "durationSec": 300,
+      "lyrics": [
+        { "timeSec": 0, "text": "Andante tres expressif" },
+        { "timeSec": 70, "text": "Pianissimo throughout" }
+      ]
+    }
   ]
 }

@@ -2,6 +2,7 @@ import UIAbility from '@ohos.app.ability.UIAbility';
 import hilog from '@ohos.hilog';
 import window from '@ohos.window';
 import { AbilityConstant, Want } from '@kit.AbilityKit';
+import { playerSession } from '../common/PlayerSession';
 
 export default class EntryAbility extends UIAbility {
   // Active page; can be overridden via `aa start ... --ps targetPage <PageName>`.
@@ -25,6 +26,9 @@ export default class EntryAbility extends UIAbility {
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
     hilog.info(0x0000, 'testTag', '%{public}s', 'Ability onCreate');
     this.applyTargetFromWant(want);
+    playerSession.init(this.context).catch((e: Error) => {
+      hilog.error(0x0000, 'testTag', 'Playback owner init failed: %{public}s', String(e));
+    });
   }
 
   onNewWant(want: Want, launchParam: AbilityConstant.LaunchParam): void {
@@ -57,6 +61,9 @@ export default class EntryAbility extends UIAbility {
 
   onDestroy(): void {
     hilog.info(0x0000, 'testTag', '%{public}s', 'Ability onDestroy');
+    playerSession.destroy().catch((e: Error) => {
+      hilog.error(0x0000, 'testTag', 'Playback owner destroy failed: %{public}s', String(e));
+    });
   }
 
   onWindowStageCreate(windowStage: window.WindowStage): void {
