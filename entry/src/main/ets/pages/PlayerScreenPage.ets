@@ -1,137 +1,104 @@
-// Page: PlayerScreenPage
+// Page: PlayerScreenPage — snapshot-driven full-screen player.
 
 import { router } from '@kit.ArkUI';
-import { hilog } from '@kit.PerformanceAnalysisKit';
-import { media } from '@kit.MediaKit';
-import { common } from '@kit.AbilityKit';
-
-const TAG = 'PlayerScreenPage';
+import { image } from '@kit.ImageKit';
+import {
+  playerSession,
+  SessionLyricLine,
+  SessionSnapshot,
+  SessionTrack
+} from '../common/PlayerSession';
 
 @Entry
 @Component
 struct PlayerScreenPage {
-  // Real values populated from rawfile/ at aboutToAppear — NOT hardcoded.
-  @State private trackTitle: string = '(loading...)';
-  @State private artistName: string = '';
-  @State private isPlaying: boolean = true;
-  @State private isFavorited: boolean = false;
-  @State private isShuffled: boolean = false;
-  @State private repeatMode: number = 0; // 0 off, 1 all, 2 one
-  @State private progressSec: number = 25;
+  @State private currentTrack: SessionTrack | null = null;
+  @State private queueTracks: SessionTrack[] = [];
+  @State private queuePosition: number = 0;
+  @State private progressSec: number = 0;
   @State private durationSec: number = 1;
-  @State private trackList: string[] = [];
+  @State private isPlaying: boolean = false;
+  @State private isCompleted: boolean = false;
+  @State private isFavorite: boolean = false;
+  @State private isShuffled: boolean = false;
+  @State private repeatMode: number = 0;
+  @State private canPrevious: boolean = false;
+  @State private canNext: boolean = false;
+  @State private artwork: image.PixelMap | null = null;
+  @State private lyricsOpen: boolean = false;
+  @State private queueOpen: boolean = false;
+  private dragFrom: number = -1;
 
-  // Deterministic colored stripe palette for the album-art placeholder.
-  private artPalette: string[] = [
-    '#1976D2', '#1E88E5', '#039BE5', '#00ACC1', '#00897B',
-    '#43A047', '#7CB342', '#C0CA33', '#FDD835', '#FFB300',
-    '#FB8C00', '#F4511E', '#E53935', '#D81B60', '#8E24AA',
-    '#5E35B1', '#3949AB'
-  ];
+  private readonly sessionListener = (snapshot: SessionSnapshot): void => {
+    this.applySnapshot(snapshot);
+  };
 
   aboutToAppear(): void {
-    hilog.info(0x0000, TAG, 'PlayerScreenPage mounted');
-    this.loadFromRawfile();
+    playerSession.subscribe(this.sessionListener);
   }
 
   aboutToDisappear(): void {
-    // TODO Phase D: this.avPlayer?.release();
+    // Collapse only detaches this view. EntryAbility retains AVPlayer/AVSession.
+    playerSession.unsubscribe(this.sessionListener);
   }
 
-  /**
-   * Discovers .mp3 / .m4a / .flac files shipped in entry/src/main/resources/rawfile/
-   * via resourceManager.getRawFileList(''), then loads the first track's metadata
-   * (title, artist, duration) using AVMetadataExtractor. Falls back to filename if
-   * tag-based metadata is absent. No hardcoded track values.
-   */
-  private async loadFromRawfile(): Promise<void> {
-    try {
-      const ctx = getContext(this) as common.UIAbilityContext;
-      const rm = ctx.resourceManager;
-      const files: string[] = await rm.getRawFileList('');
-      const tracks = files.filter((f: string) =>
-        f.toLowerCase().endsWith('.mp3') ||
-        f.toLowerCase().endsWith('.m4a') ||
-        f.toLowerCase().endsWith('.flac'));
-      this.trackList = tracks;
-      hilog.info(0x0000, TAG, 'rawfile audio found: %{public}d files', tracks.length);
-      if (tracks.length === 0) {
-        this.trackTitle = '(no audio in rawfile/)';
-        return;
-      }
-      const firstFile = tracks[0];
-      // Display filename (sans extension) as fallback title
-      this.trackTitle = firstFile.replace(/\.(mp3|m4a|flac)$/i, '');
-      // Try to extract richer metadata via AVMetadataExtractor
-      try {
-        const fd = await rm.getRawFd(firstFile);
-        const extractor = await media.createAVMetadataExtractor();
-        extractor.fdSrc = fd;
-        const meta = await extractor.fetchMetadata();
-        if (meta) {
-          if (meta.title) this.trackTitle = meta.title;
-          if (meta.artist) this.artistName = meta.artist;
-          if (meta.duration) this.durationSec = Math.floor(Number(meta.duration) / 1000);
-        }
-        await extractor.release();
-        await rm.closeRawFd(firstFile);
-        hilog.info(0x0000, TAG, 'loaded metadata: title=%{public}s artist=%{public}s dur=%{public}d',
-          this.trackTitle, this.artistName, this.durationSec);
-      } catch (metaErr) {
-        hilog.warn(0x0000, TAG, 'metadata extraction failed: %{public}s', String(metaErr));
-        // trackTitle already set to filename; leave artistName empty, durationSec=1
-      }
-    } catch (e) {
-      hilog.error(0x0000, TAG, 'rawfile scan failed: %{public}s', String(e));
-      this.trackTitle = '(load error)';
-    }
+  private applySnapshot(snapshot: SessionSnapshot): void {
+    this.currentTrack = snapshot.currentTrack;
+    this.queueTracks = snapshot.queueTracks;
+    this.queuePosition = snapshot.queuePosition;
+    this.progressSec = snapshot.positionSec;
+    this.durationSec = snapshot.durationSec > 0 ? snapshot.durationSec : 1;
+    this.isPlaying = snapshot.isPlaying;
+    this.isCompleted = snapshot.isCompleted;
+    this.isFavorite = snapshot.isFavorite;
+    this.isShuffled = snapshot.isShuffled;
+    this.repeatMode = snapshot.repeatMode;
+    this.canPrevious = snapshot.canPrevious;
+    this.canNext = snapshot.canNext;
+    this.artwork = snapshot.artwork;
+  }
+
+  private title(): string {
+    return this.currentTrack ? this.currentTrack.title : '(loading...)';
+  }
+
+  private artist(): string {
+    return this.currentTrack ? this.currentTrack.artist : '';
+  }
+
+  private lyrics(): SessionLyricLine[] {
+    return this.currentTrack ? this.currentTrack.lyrics : [];
   }
 
   private formatTime(sec: number): string {
-    const m = Math.floor(sec / 60);
-    const s = Math.floor(sec % 60);
-    return `${m}:${s < 10 ? '0' : ''}${s}`;
+    const minute = Math.floor(sec / 60);
+    const second = Math.floor(sec % 60);
+    return `${minute}:${second < 10 ? '0' : ''}${second}`;
   }
 
-  private onBack(): void {
-    router.back();
-  }
-
-  private onMore(): void {
-    hilog.info(0x0000, TAG, 'TODO open player menu');
+  private isActiveLyric(index: number): boolean {
+    const lines = this.lyrics();
+    return this.progressSec >= lines[index].timeSec &&
+      (index === lines.length - 1 || this.progressSec < lines[index + 1].timeSec);
   }
 
   private onPlayPause(): void {
-    this.isPlaying = !this.isPlaying;
-    // TODO Phase D: this.isPlaying ? this.avPlayer?.play() : this.avPlayer?.pause();
+    if (this.isCompleted) {
+      playerSession.replay();
+    } else if (this.isPlaying) {
+      playerSession.pause();
+    } else {
+      playerSession.play();
+    }
   }
 
-  private onPrev(): void {
-    hilog.info(0x0000, TAG, 'TODO skip prev');
+  private playFromQueue(position: number): void {
+    playerSession.selectQueuePosition(position, true);
+    this.queueOpen = false;
   }
 
-  private onNext(): void {
-    hilog.info(0x0000, TAG, 'TODO skip next');
-  }
-
-  private onShuffle(): void {
-    this.isShuffled = !this.isShuffled;
-  }
-
-  private onRepeat(): void {
-    this.repeatMode = (this.repeatMode + 1) % 3;
-  }
-
-  private onFavorite(): void {
-    this.isFavorited = !this.isFavorited;
-  }
-
-  private onOpenQueue(): void {
-    hilog.info(0x0000, TAG, 'TODO open queue sheet');
-  }
-
-  private onLyrics(): void {
-    hilog.info(0x0000, TAG, 'TODO toggle lyrics');
+  private removeFromQueue(position: number): void {
+    playerSession.removeQueuePosition(position);
   }
 
   @Builder
@@ -139,197 +106,163 @@ struct PlayerScreenPage {
     Row() {
       Button({ type: ButtonType.Circle, stateEffect: true }) {
         Text('⌄').fontSize(22).fontColor('#1F1F1F');
-      }
-      .width(40).height(40).backgroundColor(Color.Transparent)
-      .accessibilityText('Collapse player')
-      .onClick(() => this.onBack());
-
+      }.width(40).height(40).backgroundColor(Color.Transparent).accessibilityDescription('Collapse player')
+        .onClick(() => router.back());
       Blank().layoutWeight(1);
-
-      Button({ type: ButtonType.Circle, stateEffect: true }) {
-        Text('⋮').fontSize(20).fontColor('#1F1F1F');
-      }
-      .width(40).height(40).backgroundColor(Color.Transparent)
-      .accessibilityText('More')
-      .onClick(() => this.onMore());
-    }
-    .width('100%')
-    .height(56)
-    .padding({ left: 8, right: 8 })
-    .alignItems(VerticalAlign.Center);
-  }
-
-  // Album art placeholder rendered as stacked colored stripes
-  // (Catima barcode visual idiom).
-  @Builder
-  private AlbumArt() {
-    Column() {
-      ForEach(this.artPalette, (color: string, idx: number) => {
-        Column()
-          .width('100%')
-          .layoutWeight(1)
-          .backgroundColor(color);
-      }, (_c: string, idx: number) => `stripe_${idx}`);
-    }
-    .width(280)
-    .height(280)
-    .borderRadius(16)
-    .clip(true)
-    .margin({ top: 16 });
+    }.width('100%').height(56).padding({ left: 8, right: 8 }).alignItems(VerticalAlign.Center);
   }
 
   @Builder
-  private ProgressBar() {
-    Column() {
-      Slider({
-        value: this.progressSec,
-        min: 0,
-        max: this.durationSec,
-        step: 1,
-        style: SliderStyle.OutSet
-      })
-        .width('100%')
-        .blockColor('#1976D2')
-        .selectedColor('#1976D2')
-        .trackColor('#E0E0E0')
-        .onChange((value: number) => {
-          this.progressSec = value;
-          // TODO Phase D: this.avPlayer?.seek(value * 1000)
-        });
-
-      Row() {
-        Text(this.formatTime(this.progressSec))
-          .fontSize(12)
-          .fontColor('#666666')
-          .layoutWeight(1);
-        Text(this.formatTime(this.durationSec))
-          .fontSize(12)
-          .fontColor('#666666');
-      }
-      .width('100%')
-      .margin({ top: 4 });
+  private CoverOrLyrics() {
+    if (this.lyricsOpen) {
+      Column() {
+        if (this.lyrics().length === 0) {
+          Text('歌词未找到').fontSize(16).fontColor('#888888');
+        } else {
+          ForEach(this.lyrics(), (line: SessionLyricLine, index: number) => {
+            Text(line.text).fontSize(16).fontColor(this.isActiveLyric(index) ? '#1976D2' : '#888888')
+              .fontWeight(this.isActiveLyric(index) ? FontWeight.Bold : FontWeight.Regular).margin({ top: 8 })
+              .accessibilityDescription(this.isActiveLyric(index) ? `${line.text}, current lyric` : `${line.text}, lyric`)
+              .onClick(() => playerSession.seek(line.timeSec));
+          }, (line: SessionLyricLine) => `${line.timeSec}_${line.text}`);
+        }
+      }.width(280).height(280).borderRadius(16).backgroundColor('#F4F4F4')
+        .justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center).margin({ top: 16 });
+    } else {
+      Image(this.artwork).width(280).height(280).objectFit(ImageFit.Cover)
+        .borderRadius(16).clip(true).margin({ top: 16 }).accessibilityDescription('Track artwork');
     }
-    .width('100%')
-    .padding({ left: 24, right: 24 })
-    .margin({ top: 32 });
   }
 
   @Builder
   private ControlRow() {
     Row() {
-      // Shuffle (small)
-      Text('\u{1F500}')
-        .fontSize(20)
-        .fontColor(this.isShuffled ? '#1976D2' : '#666666')
-        .padding(10)
-        .onClick(() => this.onShuffle());
-
-      // Previous
-      Text('⏮')
-        .fontSize(28)
-        .fontColor('#1F1F1F')
-        .padding(10)
-        .onClick(() => this.onPrev());
-
-      // Play / Pause (big)
+      Text('\u{1F500}').fontSize(20).fontColor(this.isShuffled ? '#1976D2' : '#666666').padding(10)
+        .accessibilityDescription(this.isShuffled ? 'Shuffle on' : 'Shuffle off')
+        .onClick(() => playerSession.toggleShuffle());
+      Text('⏮').fontSize(28).fontColor(this.canPrevious ? '#1F1F1F' : '#BDBDBD').padding(10)
+        .accessibilityDescription(this.canPrevious ? 'Previous available' : 'Previous unavailable')
+        .enabled(this.canPrevious).onClick(() => playerSession.previous());
       Column() {
-        Text(this.isPlaying ? '⏸' : '▶')
-          .fontSize(36)
-          .fontColor('#FFFFFF')
-          .fontWeight(FontWeight.Bold);
-      }
-      .width(72)
-      .height(72)
-      .borderRadius(36)
-      .backgroundColor('#1976D2')
-      .justifyContent(FlexAlign.Center)
-      .alignItems(HorizontalAlign.Center)
-      .margin({ left: 16, right: 16 })
-      .onClick(() => this.onPlayPause());
-
-      // Next
-      Text('⏭')
-        .fontSize(28)
-        .fontColor('#1F1F1F')
-        .padding(10)
-        .onClick(() => this.onNext());
-
-      // Repeat (small)
-      Text(this.repeatMode === 2 ? '\u{1F501}' : '\u{1F501}')
-        .fontSize(20)
-        .fontColor(this.repeatMode === 0 ? '#666666' : '#1976D2')
-        .padding(10)
-        .onClick(() => this.onRepeat());
-    }
-    .width('100%')
-    .margin({ top: 32 })
-    .justifyContent(FlexAlign.Center)
-    .alignItems(VerticalAlign.Center);
+        Text(this.isCompleted ? '↺' : (this.isPlaying ? '⏸' : '▶'))
+          .fontSize(36).fontColor('#FFFFFF').fontWeight(FontWeight.Bold);
+      }.width(72).height(72).borderRadius(36).backgroundColor('#1976D2')
+        .justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center).margin({ left: 16, right: 16 })
+        .accessibilityDescription(this.isCompleted ? 'Replay' : (this.isPlaying ? 'Pause' : 'Play'))
+        .onClick(() => this.onPlayPause());
+      Text('⏭').fontSize(28).fontColor(this.canNext ? '#1F1F1F' : '#BDBDBD').padding(10)
+        .accessibilityDescription(this.canNext ? 'Next available' : 'Next unavailable')
+        .enabled(this.canNext).onClick(() => playerSession.next());
+      Text('\u{1F501}').fontSize(20).fontColor(this.repeatMode === 0 ? '#666666' : '#1976D2').padding(10)
+        .accessibilityDescription(this.repeatMode === 0 ? 'Repeat off' : (this.repeatMode === 1 ? 'Repeat all' : 'Repeat one'))
+        .onClick(() => playerSession.setRepeatMode((this.repeatMode + 1) % 3));
+    }.width('100%').margin({ top: 24 }).justifyContent(FlexAlign.Center).alignItems(VerticalAlign.Center);
   }
 
   @Builder
-  private FooterRow() {
-    Row() {
-      // Queue
-      Column() {
-        Text('☰').fontSize(20).fontColor('#1F1F1F');
-        Text('Queue').fontSize(11).fontColor('#666666').margin({ top: 4 });
-      }
-      .layoutWeight(1)
-      .onClick(() => this.onOpenQueue());
-
-      // Lyrics
-      Column() {
-        Text('♫').fontSize(20).fontColor('#1F1F1F');
-        Text('Lyrics').fontSize(11).fontColor('#666666').margin({ top: 4 });
-      }
-      .layoutWeight(1)
-      .onClick(() => this.onLyrics());
-
-      // Favorite
-      Column() {
-        Text(this.isFavorited ? '♥' : '♡')
-          .fontSize(20)
-          .fontColor(this.isFavorited ? '#E53935' : '#1F1F1F');
-        Text('Favorite').fontSize(11).fontColor('#666666').margin({ top: 4 });
-      }
-      .layoutWeight(1)
-      .onClick(() => this.onFavorite());
-    }
-    .width('100%')
-    .padding({ top: 16, bottom: 24 })
-    .alignItems(VerticalAlign.Center);
+  private QueueSheet() {
+    Column() {
+      Row() {
+        Text('Queue').fontSize(18).fontWeight(FontWeight.Bold).fontColor('#1F1F1F').layoutWeight(1).padding(16);
+        Text('⌄').fontSize(22).fontColor('#1F1F1F').padding(16)
+          .accessibilityDescription('Close queue').onClick(() => { this.queueOpen = false; });
+      }.width('100%');
+      List() {
+        ForEach(this.queueTracks, (track: SessionTrack, position: number) => {
+          ListItem() {
+            Row() {
+              Text('≡').fontSize(20).fontColor('#888888').width(40).textAlign(TextAlign.Center)
+                .accessibilityDescription(`Reorder ${track.title}`);
+              Text(track.title).fontSize(15)
+                .fontColor(position === this.queuePosition ? '#1976D2' : '#1F1F1F')
+                .fontWeight(position === this.queuePosition ? FontWeight.Bold : FontWeight.Regular)
+                .layoutWeight(1)
+                .accessibilityDescription(position === this.queuePosition ? `${track.title}, current media` : track.title);
+            }.width('100%').height(56).alignItems(VerticalAlign.Center)
+              .onClick(() => this.playFromQueue(position))
+              .gesture(PanGesture({ direction: PanDirection.Horizontal })
+                .onActionEnd((event: GestureEvent) => {
+                  if (event.offsetX < -80 || event.offsetX > 80) {
+                    this.removeFromQueue(position);
+                  }
+                }));
+          }
+        }, (track: SessionTrack, position: number) =>
+          `${track.id}_${position}`);
+      }.layoutWeight(1).width('100%')
+        .editMode(true)
+        .onItemDragStart((event: ItemDragInfo, itemIndex: number) => {
+          this.dragFrom = itemIndex;
+          return this.DragPreview(this.queueTracks[itemIndex].title);
+        })
+        .onItemDrop((event: ItemDragInfo, itemIndex: number, insertIndex: number, isSuccess: boolean) => {
+          if (isSuccess && this.dragFrom >= 0) {
+            const finalIndex = insertIndex < this.queueTracks.length ? insertIndex : this.queueTracks.length - 1;
+            playerSession.reorderQueue(this.dragFrom, finalIndex);
+            this.dragFrom = -1;
+          }
+        });
+    }.width('100%').height('70%').backgroundColor('#FFFFFF')
+      .borderRadius({ topLeft: 16, topRight: 16 }).shadow({ radius: 16, color: '#40000000' });
   }
 
   build() {
-    Column() {
-      this.TopBar();
-
+    Stack({ alignContent: Alignment.Bottom }) {
       Column() {
-        this.AlbumArt();
+        this.TopBar();
+        Column() {
+          this.CoverOrLyrics();
+          Text(this.title()).fontSize(22).fontWeight(FontWeight.Bold).fontColor('#1F1F1F').margin({ top: 20 });
+          Text(this.artist()).fontSize(15).fontColor('#666666').margin({ top: 6 });
 
-        Text(this.trackTitle)
-          .fontSize(22)
-          .fontWeight(FontWeight.Bold)
-          .fontColor('#1F1F1F')
-          .margin({ top: 24 });
+          Column() {
+            Slider({ value: this.progressSec, min: 0, max: this.durationSec, step: 1, style: SliderStyle.OutSet })
+              .width('100%').blockColor('#1976D2').selectedColor('#1976D2').trackColor('#E0E0E0')
+              .accessibilityDescription('Playback position')
+              .onChange((value: number, mode: SliderChangeMode) => {
+                if (mode === SliderChangeMode.End || mode === SliderChangeMode.Click) {
+                  playerSession.seek(value);
+                }
+              });
+            Row() {
+              Text(this.formatTime(this.progressSec)).fontSize(12).fontColor('#666666').layoutWeight(1);
+              Text(this.formatTime(this.durationSec)).fontSize(12).fontColor('#666666');
+            }.width('100%').margin({ top: 4 });
+          }.width('100%').padding({ left: 24, right: 24 }).margin({ top: 24 });
 
-        Text(this.artistName)
-          .fontSize(15)
-          .fontColor('#666666')
-          .margin({ top: 6 });
+          this.ControlRow();
 
-        this.ProgressBar();
-        this.ControlRow();
-        this.FooterRow();
+          Text(`Shuffle: ${this.isShuffled ? 'on' : 'off'} · Repeat: ${this.repeatMode === 0 ? 'off' :
+            (this.repeatMode === 1 ? 'all' : 'one')}`)
+            .fontSize(11).fontColor('#888888').margin({ top: 6 });
+
+          Row() {
+            Column() {
+              Text('☰').fontSize(20).fontColor('#1F1F1F');
+              Text('Queue').fontSize(11).fontColor('#666666').margin({ top: 4 });
+            }.layoutWeight(1).accessibilityDescription('Queue').onClick(() => { this.queueOpen = true; });
+            Column() {
+              Text('♫').fontSize(20).fontColor(this.lyricsOpen ? '#1976D2' : '#1F1F1F');
+              Text('Lyrics').fontSize(11).fontColor('#666666').margin({ top: 4 });
+            }.layoutWeight(1).accessibilityDescription(this.lyricsOpen ? 'Hide lyrics' : 'Show lyrics')
+              .onClick(() => { this.lyricsOpen = !this.lyricsOpen; });
+            Column() {
+              Text(this.isFavorite ? '♥' : '♡').fontSize(20).fontColor(this.isFavorite ? '#E53935' : '#1F1F1F');
+              Text('Favorite').fontSize(11).fontColor('#666666').margin({ top: 4 });
+            }.layoutWeight(1).accessibilityDescription(this.isFavorite ? 'Favorite selected' : 'Favorite unselected')
+              .onClick(() => playerSession.toggleFavorite());
+          }.width('100%').padding({ top: 16, bottom: 24 }).alignItems(VerticalAlign.Center);
+        }.layoutWeight(1).width('100%').alignItems(HorizontalAlign.Center).padding({ left: 16, right: 16 });
+      }.width('100%').height('100%').backgroundColor('#FFFFFF');
+
+      if (this.queueOpen) {
+        this.QueueSheet();
       }
-      .layoutWeight(1)
-      .width('100%')
-      .alignItems(HorizontalAlign.Center)
-      .padding({ left: 16, right: 16 });
-    }
-    .width('100%')
-    .height('100%')
-    .backgroundColor('#FFFFFF');
+    }.width('100%').height('100%');
+  }
+
+  @Builder
+  private DragPreview(title: string) {
+    Text(title).fontSize(15).fontColor('#1F1F1F').padding(12).backgroundColor('#F0F0F0');
   }
 }
